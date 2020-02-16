@@ -8,13 +8,15 @@ public class GameManager : MonoBehaviourPunCallbacks
 {
     private Button m_LeaveButton;
     private GameObject m_PlayerPrefab;
-    public Button LeaveButton { get => m_LeaveButton != null ? m_LeaveButton : m_LeaveButton = GameObject.Find("LeaveRoomButton").GetComponent<Button>(); set => m_LeaveButton.onClick.AddListener(OnLeftRoom); }
+    private Image m_DeadScreen;
+    public Button LeaveButton { get => m_LeaveButton != null ? m_LeaveButton : m_LeaveButton = GameObject.Find("Canvas/LeaveRoomButton").GetComponent<Button>(); }
     public GameObject PlayerPrefab { get => m_PlayerPrefab != null ? m_PlayerPrefab : m_PlayerPrefab = Resources.Load<GameObject>("Player"); }
-    
-
+    public Image DeadScreen { get => m_DeadScreen != null ? m_DeadScreen : m_DeadScreen = GameObject.Find("Canvas/DeadScreen").GetComponent<Image>(); }
 
     private void Start()
     {
+        LeaveButton.onClick.AddListener(LeaveRoom);
+        DeadScreen.gameObject.SetActive(false);
         PhotonNetwork.Instantiate(PlayerPrefab.name, new Vector2(Random.Range(-7, 7), transform.position.y), Quaternion.identity);
     }
 
