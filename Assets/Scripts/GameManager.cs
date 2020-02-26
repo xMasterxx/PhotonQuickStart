@@ -13,11 +13,23 @@ public class GameManager : MonoBehaviourPunCallbacks
     public GameObject PlayerPrefab { get => m_PlayerPrefab != null ? m_PlayerPrefab : m_PlayerPrefab = Resources.Load<GameObject>("Player"); }
     public Image DeadScreen { get => m_DeadScreen != null ? m_DeadScreen : m_DeadScreen = GameObject.Find("Canvas/DeadScreen").GetComponent<Image>(); }
 
+
     private void Start()
     {
         LeaveButton.onClick.AddListener(LeaveRoom);
         DeadScreen.gameObject.SetActive(false);
-        PhotonNetwork.Instantiate(PlayerPrefab.name, new Vector2(Random.Range(-7, 7), transform.position.y), Quaternion.identity);
+
+        if (PlayerController.LocalPlayerInstance == null)
+        {
+            Debug.LogFormat("We are Instantiating LocalPlayer from {0}", SceneManagerHelper.ActiveSceneName);
+            // we're in a room. spawn a character for the local player. it gets synced by using PhotonNetwork.Instantiate
+            PhotonNetwork.Instantiate(PlayerPrefab.name, new Vector2(Random.Range(-7, 7), transform.position.y), Quaternion.identity);
+        }
+        else
+        {
+            Debug.LogFormat("Ignoring scene load for {0}", SceneManagerHelper.ActiveSceneName);
+        }
+
     }
 
 

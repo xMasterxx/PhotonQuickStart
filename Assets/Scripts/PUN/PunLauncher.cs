@@ -15,16 +15,23 @@ public class PunLauncher : MonoBehaviourPunCallbacks
 
     [Tooltip("The Ui Panel to let the user enter name, connect and play")]
     [SerializeField] private GameObject m_ControlPanel;
+
     [Tooltip("The UI Label to inform the user that the connection is in progress")]
     [SerializeField] private GameObject m_ProgressLabel;
-    public GameObject ProgressLabel { get => m_ProgressLabel != null ? m_ProgressLabel : m_ProgressLabel = GameObject.Find("ProgressLabel").GetComponent<GameObject>(); }
-    public GameObject ControlPanel { get => m_ControlPanel != null ? m_ControlPanel : m_ControlPanel = GameObject.Find("ControlPanel").GetComponent<GameObject>(); }
+
     /// <summary>
     /// Keep track of the current process. Since connection is asynchronous and is based on several callbacks from Photon,
     /// we need to keep track of this to properly adjust the behavior when we receive call back by Photon.
     /// Typically this is used for the OnConnectedToMaster() callback.
     /// </summary>
-    private bool isConnecting;
+    private bool m_IsConnecting;
+
+
+    public GameObject ProgressLabel { get => m_ProgressLabel != null ? m_ProgressLabel : m_ProgressLabel = GameObject.Find("ProgressLabel").GetComponent<GameObject>(); }
+    public GameObject ControlPanel { get => m_ControlPanel != null ? m_ControlPanel : m_ControlPanel = GameObject.Find("ControlPanel").GetComponent<GameObject>(); }
+    public bool IsConnecting { get => m_IsConnecting; set => m_IsConnecting = value; }
+
+
 
 
 
@@ -60,7 +67,7 @@ public class PunLauncher : MonoBehaviourPunCallbacks
         ControlPanel.SetActive(false);
 
         // keep track of the will to join a room, because when we come back from the game we will get a callback that we are connected, so we need to know what to do then
-        isConnecting = PhotonNetwork.ConnectUsingSettings();
+        IsConnecting = PhotonNetwork.ConnectUsingSettings();
 
         // we check if we are connected or not, we join if we are , else we initiate the connection to the server.
         if (PhotonNetwork.IsConnected)
@@ -85,11 +92,11 @@ public class PunLauncher : MonoBehaviourPunCallbacks
         // we don't want to do anything if we are not attempting to join a room.
         // this case where isConnecting is false is typically when you lost or quit the game, when this level is loaded, OnConnectedToMaster will be called, in that case
         // we don't want to do anything.
-        if (isConnecting)
+        if (IsConnecting)
         {
             // #Critical: The first we try to do is to join a potential existing room. If there is, good, else, we'll be called back with OnJoinRandomFailed()
             PhotonNetwork.JoinRandomRoom();
-            isConnecting = false;
+            IsConnecting = false;
         }
     }
 

@@ -4,60 +4,88 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-public class PlayerController : CharacterBase
+public class PlayerController : CharacterBase, IPunObservable
 {
-    [SerializeField] private Rigidbody2D m_AttackPrefab;
+    private GameObject m_AttackPrefab;
+    private GameManager m_GameManagerScript;
     private PhotonView m_PhotonView;
-    private bool m_LookLeft;
     private float m_InputDirection;
-    [SerializeField] private GameManager m_GameManagerScript;
+    private static GameObject m_LocalPlayerInstance;
+    public GameObject AttackPrefab { get => m_AttackPrefab != null ? m_AttackPrefab : m_AttackPrefab = Resources.Load<GameObject>("AttackPrefab"); }
 
-    public Rigidbody2D AttackPrefab { get => m_AttackPrefab != null ? m_AttackPrefab : m_AttackPrefab = Resources.Load<Rigidbody2D>("AttackPrefab"); }
-    public bool LookLeft { get => m_LookLeft; set => m_LookLeft = value; }
     public float InputDirection { get => m_InputDirection; set => m_InputDirection = value; }
     public PhotonView PhotonView { get => m_PhotonView != null ? m_PhotonView : m_PhotonView = GetComponent<PhotonView>(); }
     public GameManager GameManagerScript { get => m_GameManagerScript != null ? m_GameManagerScript : m_GameManagerScript = GameObject.FindWithTag("MainCamera").GetComponent<GameManager>(); }
+    public static GameObject LocalPlayerInstance { get => m_LocalPlayerInstance; set => m_LocalPlayerInstance = value; }
 
+    private void Awake()
+    {
+        // #Important
+        // used in GameManager.cs: we keep track of the localPlayer instance to prevent instantiation when levels are synchronized
+        if (PhotonView.IsMine)
+        {
+            PlayerController.LocalPlayerInstance = this.gameObject;
+        }
 
+        // #Critical
+        // we flag as don't destroy on load so that instance survives level synchronization, thus giving a seamless experience when levels load.
+        DontDestroyOnLoad(this.gameObject);
+    }
 
+    private void Start()
+    {
+        AddObservable();
+    }
 
 
     void Update()
     {
-        if (!PhotonView.IsMine && SceneManager.GetActiveScene().name == "Multiplayer")
+        if (PhotonView.IsMine && SceneManager.GetActiveScene().name == "Multiplayer")
         {
-            return;
-        }
+            if (Hp > 0)
+            {
+                if (Input.GetKeyDown(KeyCode.Space))
+                {
+                    Attack();
+                }
 
-        if (Input.GetKeyDown(KeyCode.Space))
-        {
-            Attack();
-        }
-        Move();
-
-        if (Hp <= 0)
-        {
-            Die();
+                Move();
+            }
+            GetPlayerStatus();
         }
     }
 
-    public override void Attack()
+    public void OnPhotonSerializeView(PhotonStream stream, PhotonMessageInfo info)
     {
-        Rigidbody2D attackPrefabInstance;
-
-
-        if (LookLeft)
+        if (stream.IsWriting)
         {
-            attackPrefabInstance = Instantiate(AttackPrefab, new Vector2(transform.position.x - 3, transform.position.y), AttackPrefab.transform.rotation) as Rigidbody2D;
-            attackPrefabInstance.AddForce(-gameObject.transform.right * 20, ForceMode2D.Impulse);
+            // We own this player: send the others our data 
+            stream.SendNext(Hp);
+            stream.SendNext(SpriteRenderer.flipX);
+            stream.SendNext(PlayerInfo.text);
         }
         else
         {
-            attackPrefabInstance = Instantiate(AttackPrefab, new Vector2(transform.position.x + 3, transform.position.y), AttackPrefab.transform.rotation) as Rigidbody2D;
-            attackPrefabInstance.AddForce(gameObject.transform.right * 20, ForceMode2D.Impulse);
+            // Network player, receive data
+            Hp = (float)stream.ReceiveNext();
+            SpriteRenderer.flipX = (bool)stream.ReceiveNext();
+            PlayerInfo.text = (string)stream.ReceiveNext();
         }
+    }
 
-        StartCoroutine(Destroy(attackPrefabInstance.gameObject, 3f));
+
+    public override void Attack()
+    {
+
+        if (SpriteRenderer.flipX)
+        {
+            var attackPrefab = PhotonNetwork.Instantiate(AttackPrefab.name, new Vector2(transform.position.x - 2, transform.position.y), AttackPrefab.transform.rotation);
+            attackPrefab.GetComponent<PhotonView>().RPC("ChangeDirection", RpcTarget.AllBuffered);
+        }
+        else
+        {
+          PhotonNetwork.Instantiate(AttackPrefab.name, new Vector2(transform.position.x + 2, transform.position.y), AttackPrefab.transform.rotation);
+        }
 
     }
 
@@ -65,7 +93,8 @@ public class PlayerController : CharacterBase
     {
         GameManagerScript.DeadScreen.gameObject.SetActive(true);
         this.gameObject.transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.Euler(0, 0, 90), .5f);
-        StartCoroutine(Destroy(gameObject, 3f));
+        StartCoroutine(PhotonDestroy(gameObject, 3f));
+        Animator.SetInteger("State", 3);
     }
 
 
@@ -74,40 +103,60 @@ public class PlayerController : CharacterBase
     {
         InputDirection = Input.GetAxis("Horizontal");
         transform.Translate(Vector3.right * Time.deltaTime * Speed * InputDirection);
-        if (InputDirection > 0 && LookLeft || InputDirection < 0 && !LookLeft)
+
+        if (InputDirection > 0 && SpriteRenderer.flipX || InputDirection < 0 && !SpriteRenderer.flipX)
         {
             Flip();
         }
 
-        if (InputDirection > .6 || InputDirection < -.6)
+        if (InputDirection > .4 || InputDirection < -.4)
         {
-            Animator.Play("Run");
+            Animator.SetInteger("State", 1);
         }
         else
         {
-            Animator.Play("Idle");
+            Animator.SetInteger("State", 2);
+        }
+    }
+
+    public override void GetPlayerStatus()
+    {
+        if (Hp <= 0)
+        {
+            Die();
+            PlayerInfo.text = $"{PlayerPrefs.GetString("PlayerName")} : 0";
+        }
+        else if (Hp > 0)
+        {
+            PlayerInfo.text = $"{PlayerPrefs.GetString("PlayerName")} : {Hp}";
+        }
+    }
+    private void AddObservable()
+    {
+        if (!PhotonView.ObservedComponents.Contains(this))
+        {
+            PhotonView.ObservedComponents.Add(this);
         }
     }
 
     private void OnCollisionEnter2D(Collision2D collision)
     {
+        if (!PhotonView.IsMine)
+        {
+            return;
+        }
+
         if (collision.gameObject.CompareTag("Bullet"))
         {
             Hp -= 5;
-            Destroy(collision.gameObject);
         }
     }
-    private IEnumerator Destroy(GameObject prefab, float time)
+    private IEnumerator PhotonDestroy(GameObject prefab, float time)
     {
         yield return new WaitForSeconds(time);
-        Destroy(prefab);
+        PhotonNetwork.Destroy(prefab);
     }
 
-    private void Flip()
-    {
-        LookLeft = !LookLeft;
-        transform.localScale = new Vector3(transform.localScale.x * -1,
-            transform.localScale.y, transform.localScale.z);
-    }
+    private bool Flip() => SpriteRenderer.flipX = !SpriteRenderer.flipX;
 
 }
